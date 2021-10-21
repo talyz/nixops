@@ -37,27 +37,42 @@ PluginManager.load()
 
 
 def get_network_file(args: Namespace) -> NetworkFile:
-    network_dir: str = os.path.abspath(args.network_dir)
+    network_path: str = ""
+    flake_dir: str = ""
+    flake_path: str = ""
 
-    if not os.path.exists(network_dir):
-        raise ValueError(f"{network_dir} does not exist")
+    network_path = args.network_path or os.path.join(os.getcwd(), "nixops.nix")
+    network_path = os.path.abspath(network_path)
+    if os.path.isdir(network_path):
+        network_path = os.path.join(network_path, "nixops.nix")
+    network_exists: bool = os.path.exists(network_path)
+    if args.network_path and not network_exists:
+        raise ValueError(f"{network_path} does not exist")
 
-    classic_path = os.path.join(network_dir, "nixops.nix")
-    flake_path = os.path.join(network_dir, "flake.nix")
-
-    classic_exists: bool = os.path.exists(classic_path)
+    flake_dir = args.flake_path or os.getcwd()
+    flake_dir = os.path.abspath(flake_dir)
+    flake_path = flake_dir
+    if os.path.isdir(flake_dir):
+        flake_path = os.path.join(flake_dir, "flake.nix")
+    else:
+        flake_dir = os.path.dirname(flake_path)
     flake_exists: bool = os.path.exists(flake_path)
+    if args.flake_path and not flake_exists:
+        raise ValueError(f"{flake_path} does not exist")
 
-    if all((flake_exists, classic_exists)):
-        raise ValueError("Both flake.nix and nixops.nix cannot coexist")
+    if all((not args.network_path, not args.flake_path, flake_exists, network_exists)):
+        raise ValueError("Both flake.nix and nixops.nix found in current directory")
 
-    if classic_exists:
-        return NetworkFile(network=classic_path, is_flake=False)
+    if flake_exists and not args.network_path:
+        if os.path.exists(os.path.join(flake_dir, ".git")):
+            return NetworkFile(network=f"git+file:{flake_dir}", is_flake=True)
+        else:
+            return NetworkFile(network=flake_dir, is_flake=True)
 
-    if flake_exists:
-        return NetworkFile(network=network_dir, is_flake=True)
+    if network_exists:
+        return NetworkFile(network=network_path, is_flake=False)
 
-    raise ValueError(f"Neither flake.nix nor nixops.nix exists in {network_dir}")
+    raise ValueError("Neither flake.nix nor nixops.nix exists in current directory")
 
 
 def set_common_depl(depl: nixops.deployment.Deployment, args: Namespace) -> None:
@@ -1171,12 +1186,20 @@ def add_subparser(
 ) -> ArgumentParser:
     subparser: ArgumentParser
     subparser = subparsers.add_parser(name, help=help)
-    subparser.add_argument(
+    network = subparser.add_mutually_exclusive_group()
+    network.add_argument(
         "--network",
-        dest="network_dir",
+        "-n",
+        dest="network_path",
         metavar="FILE",
-        default=os.getcwd(),
-        help="path to a directory containing either nixops.nix or flake.nix",
+        help="path to network file or a directory containing nixops.nix",
+    )
+    network.add_argument(
+        "--flake",
+        "-f",
+        dest="flake_path",
+        metavar="FILE",
+        help="path to flake or a directory containing flake.nix",
     )
     subparser.add_argument(
         "--deployment",
