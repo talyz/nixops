@@ -22,18 +22,19 @@ let
   networks =
     let
       getNetworkFromExpr = networkExpr:
-        (call (import networkExpr)) // { _file = networkExpr; };
+        if networkExpr == flakeUri then
+          (call flakeExpr) // { _file = "<${flakeUri}>"; }
+        else
+          (call (import networkExpr)) // { _file = networkExpr; };
 
       exprToKey = key: { key = toString key; };
 
       networkExprClosure = builtins.genericClosure {
-        startSet = map exprToKey networkExprs;
+        startSet = map exprToKey (networkExprs ++ optional (flakeUri != null) flakeUri);
         operator = { key }: map exprToKey ((getNetworkFromExpr key).require or []);
       };
     in
-      map ({ key }: getNetworkFromExpr key) networkExprClosure
-      ++ optional (flakeUri != null)
-        ((call flakeExpr) // { _file = "<${flakeUri}>"; });
+      map ({ key }: getNetworkFromExpr key) networkExprClosure;
 
   network = zipAttrs networks;
 
